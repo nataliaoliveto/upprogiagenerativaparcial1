@@ -1,0 +1,44 @@
+{
+  "nodes": [
+    {
+      "id": "157336",
+      "title": "Interstellar",
+      "poster": "https://image.tmdb.org/t/p/w500/d1QKiYtceF3GDtxvTFXFAqwwah9.jpg"
+    },
+    {
+      "id": "329865",
+      "title": "La llegada",
+      "poster": "https://image.tmdb.org/t/p/w500/tbVITeytclB4JKx2LxxasrCCmZx.jpg"
+    },
+    {
+      "id": "438631",
+      "title": "Dune",
+      "poster": "https://image.tmdb.org/t/p/w500/szcew6yyjcDvaL0isaPBk2e3nkF.jpg"
+    },
+    {
+      "id": "286217",
+      "title": "Marte (The Martian)",
+      "poster": "https://image.tmdb.org/t/p/w500/hBRK1izFxIH3Nh6vax4ssOHSHVd.jpg"
+    }
+  ],
+  "edges": [
+    {
+      "id": "e-157336-329865",
+      "source": "157336",
+      "target": "329865",
+      "label": "Explora la ciencia ficción contemplativa, la tensión emocional y la idea de explorar lo desconocido en un contexto cósmico."
+    },
+    {
+      "id": "e-157336-438631",
+      "source": "157336",
+      "target": "438631",
+      "label": "Combina un mundo alienígena, vastedad cósmica y una narrativa épica sobre supervivencia y destino."
+    },
+    {
+      "id": "e-157336-286217",
+      "source": "157336",
+      "target": "286217",
+      "label": "Se enfoca en la exploración espacial, la resiliencia humana y la ciencia aplicada en un entorno marciano."
+    }
+  ]
+}
