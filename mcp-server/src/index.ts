@@ -86,56 +86,89 @@ server.registerTool(
   },
 );
 
-// 4. Herramienta 3: Agregar al Grafo
+// 4. Herramienta 3: Agregar al Grafo (Versión Batching)
 server.registerTool(
   "add_to_graph",
   {
     description:
-      "Usa esta herramienta COMO PASO FINAL para guardar tu película en el JSON. Si es la PRIMERA película del grafo, omite sourceId y reason.",
+      "Usa esta herramienta COMO PASO FINAL para guardar todas las películas en el JSON de una sola vez. Envía la película inicial y sus recomendaciones juntas en el array.",
     inputSchema: {
-      movieId: z.string(),
-      title: z.string(),
-      poster: z.string().describe("URL completa del póster"),
-      sourceId: z
-        .string()
-        .optional()
-        .describe("ID del nodo de origen (Omitir si es la primera película)"),
-      reason: z
-        .string()
-        .optional()
-        .describe(
-          "Por qué elegiste recomendarla (Omitir si es la primera película)",
-        ),
+      movies: z
+        .array(
+          z.object({
+            movieId: z.string(),
+            title: z.string(),
+            poster: z.string().describe("URL completa del póster"),
+            sourceId: z
+              .string()
+              .optional()
+              .describe(
+                "ID del nodo de origen (Omitir si es la primera película)",
+              ),
+            reason: z
+              .string()
+              .optional()
+              .describe(
+                "Por qué elegiste recomendarla (Omitir si es la primera película)",
+              ),
+            genres: z
+              .array(z.string())
+              .optional()
+              .describe(
+                "Lista de 2 o 3 géneros de la película (ej: ['Ciencia Ficción', 'Drama'])",
+              ),
+            description: z
+              .string()
+              .optional()
+              .describe(
+                "Breve sinopsis de la película (Solo para la película inicial)",
+              ),
+          }),
+        )
+        .describe("Lista de películas a agregar al grafo en lote."),
     },
   },
-  async ({ movieId, title, poster, sourceId, reason }) => {
+  async ({ movies }) => {
     try {
       const fileContent = await fs.readFile(DATA_FILE_PATH, "utf-8");
       const graph = JSON.parse(fileContent);
 
-      if (!graph.nodes.find((n: any) => n.id === movieId)) {
-        graph.nodes.push({ id: movieId, title, poster });
+      // Procesamos todo el lote en memoria
+      for (const movie of movies) {
+        if (!graph.nodes.find((n: any) => n.id === movie.movieId)) {
+          graph.nodes.push({
+            id: movie.movieId,
+            title: movie.title,
+            poster: movie.poster,
+            genres: movie.genres,
+            description: movie.description,
+          });
+        }
+
+        if (movie.sourceId && movie.reason) {
+          graph.edges.push({
+            id: `e-${movie.sourceId}-${movie.movieId}`,
+            source: movie.sourceId,
+            target: movie.movieId,
+            label: movie.reason,
+          });
+        }
       }
 
-      if (sourceId && reason) {
-        graph.edges.push({
-          id: `e-${sourceId}-${movieId}`,
-          source: sourceId,
-          target: movieId,
-          label: reason,
-        });
-      }
-
+      // Una única escritura en disco para que Vite procese todo sin trabarse
       await fs.writeFile(DATA_FILE_PATH, JSON.stringify(graph, null, 2));
       return {
         content: [
-          { type: "text", text: `Success! Movie ${title} added to graph.` },
+          {
+            type: "text",
+            text: `Success! ${movies.length} movies added to graph.`,
+          },
         ],
       };
     } catch (error) {
       return {
         content: [
-          { type: "text", text: `Error modifying graph_data.json: ${error}` },
+          { type: "text", text: `Error modifying graph data: ${error}` },
         ],
       };
     }

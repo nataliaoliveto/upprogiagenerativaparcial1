@@ -1,18 +1,26 @@
 import { useEffect, useState } from "react";
-import ReactFlow, { Handle, Position, type Edge, type Node } from "reactflow";
+import ReactFlow, {
+  Handle,
+  MarkerType,
+  Position,
+  type Edge,
+  type Node,
+} from "reactflow";
 import "reactflow/dist/style.css";
-import graphData from "./graph_data.json";
 
 interface MovieNodeData {
   title: string;
   poster: string;
   description?: string;
+  genres?: string[];
 }
 
 interface GraphMovie {
   id: string;
   title: string;
   poster: string;
+  description?: string;
+  genres?: string[];
 }
 
 interface GraphEdge {
@@ -26,9 +34,6 @@ interface GraphData {
   nodes: GraphMovie[];
   edges: GraphEdge[];
 }
-
-const data = graphData as GraphData;
-const DEFAULT_MAIN_MOVIE_ID = "157336";
 
 const MovieCardNode = ({ data }: { data: MovieNodeData }) => {
   return (
@@ -133,6 +138,34 @@ const MovieCardNode = ({ data }: { data: MovieNodeData }) => {
             {data.description}
           </p>
         )}
+        {data.genres && data.genres.length > 0 && (
+          <div
+            style={{
+              display: "flex",
+              gap: "6px",
+              flexWrap: "wrap",
+              marginBottom: "4px",
+            }}
+          >
+            {data.genres.map((genre, idx) => (
+              <span
+                key={idx}
+                style={{
+                  background: "rgba(56, 189, 248, 0.15)",
+                  color: "#7dd3fc",
+                  padding: "2px 10px",
+                  borderRadius: "12px",
+                  fontSize: "11px",
+                  fontWeight: 600,
+                  border: "1px solid rgba(56, 189, 248, 0.3)",
+                  letterSpacing: "0.5px",
+                }}
+              >
+                {genre.toUpperCase()}
+              </span>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
@@ -142,102 +175,134 @@ const nodeTypes = {
   movieCard: MovieCardNode,
 } as const;
 
-const CARD_WIDTH = 190;
-const CARD_HEIGHT = 300;
-
 export default function App() {
   const [movieNodes, setMovieNodes] = useState<Node<MovieNodeData>[]>([]);
   const [movieEdges, setMovieEdges] = useState<Edge[]>([]);
-  const [mainMovieTitle, setMainMovieTitle] = useState<string>(
-    "la película principal",
-  );
 
   useEffect(() => {
-    const mainMovieId = DEFAULT_MAIN_MOVIE_ID;
-    const mainMovie =
-      data.nodes.find((movie) => movie.id === mainMovieId) ?? data.nodes[0];
-    const secondaryMovies = data.nodes.filter(
-      (movie) => movie.id !== mainMovie.id,
-    );
-    const descriptionByTarget = new Map<string, string>();
+    const fetchAndUpdateGraph = () => {
+      fetch("/src/graph_data.json?t=" + new Date().getTime())
+        .then((res) => res.json())
+        .then((data: GraphData) => {
+          if (!data || !data.nodes || data.nodes.length === 0) return;
 
-    data.edges.forEach((edge) => {
-      if (edge.label) {
-        descriptionByTarget.set(edge.target, edge.label);
-      }
-    });
+          const descriptionByTarget = new Map<string, string>();
+          const childrenMap = new Map<string, string[]>();
 
-    const mainNodeWidth = 310;
-    const secondaryStartY = 660;
-    const secondaryGapX = 430;
-    const layoutCenterX = window.innerWidth / 2;
-    const secondaryTotalWidth =
-      Math.max(0, secondaryMovies.length - 1) * secondaryGapX + mainNodeWidth;
-    const secondaryStartX = layoutCenterX - secondaryTotalWidth / 2;
-    const mainNodeX = layoutCenterX - mainNodeWidth / 2;
-    const mainNodeY = 20;
+          // 1. Mapeamos las descripciones y quién es padre de quién
+          data.edges.forEach((edge) => {
+            if (edge.label) descriptionByTarget.set(edge.target, edge.label);
 
-    const mappedNodes: Node<MovieNodeData>[] = data.nodes.map((movie) => {
-      const isMainMovie = movie.id === mainMovie.id;
+            if (!childrenMap.has(edge.source)) childrenMap.set(edge.source, []);
+            childrenMap.get(edge.source)!.push(edge.target);
+          });
 
-      if (isMainMovie) {
-        return {
-          id: movie.id,
-          type: "movieCard",
-          position: { x: mainNodeX, y: mainNodeY },
-          data: {
-            title: movie.title,
-            poster: movie.poster,
-            description:
-              "Un grupo de exploradores usan un agujero de gusano para viajar mucho más allá de las limitaciones del espacio y del tiempo.",
-          },
-          style: {
-            boxShadow:
-              "0 0 0 1px rgba(125, 211, 252, 0.55), 0 0 24px rgba(59, 130, 246, 0.42)",
-          },
-        };
-      }
+          // 2. Encontramos la(s) película(s) principal(es) (Raíz: las que no tienen flechas apuntándoles)
+          const targets = new Set(data.edges.map((e) => e.target));
+          const rootNodes = data.nodes.filter((n) => !targets.has(n.id));
+          const startNodes = rootNodes.length > 0 ? rootNodes : [data.nodes[0]];
 
-      const relatedIndex = secondaryMovies.findIndex(
-        (secondaryMovie) => secondaryMovie.id === movie.id,
-      );
-      const nodeX = secondaryStartX + relatedIndex * secondaryGapX;
+          // 3. Calculamos en qué "nivel" o profundidad va cada tarjeta
+          const nodeDepths = new Map<string, number>();
+          const queue = startNodes.map((r) => ({ id: r.id, depth: 0 }));
 
-      return {
-        id: movie.id,
-        type: "movieCard",
-        position: {
-          x: nodeX,
-          y: secondaryStartY,
-        },
-        data: {
-          title: movie.title,
-          poster: movie.poster,
-          description: descriptionByTarget.get(movie.id),
-        },
-      };
-    });
+          while (queue.length > 0) {
+            const curr = queue.shift()!;
+            if (!nodeDepths.has(curr.id)) {
+              nodeDepths.set(curr.id, curr.depth);
+              const children = childrenMap.get(curr.id) || [];
+              // Los hijos van un nivel más abajo
+              children.forEach((c) =>
+                queue.push({ id: c, depth: curr.depth + 1 }),
+              );
+            }
+          }
 
-    const mappedEdges: Edge[] = data.edges.map((edge) => ({
-      id: edge.id,
-      source: String(edge.source),
-      target: String(edge.target),
-      animated: true,
-      type: "smoothstep",
-      style: { stroke: "#7dd3fc", strokeWidth: 1.5, opacity: 0.85 },
-      markerEnd: {
-        type: "arrowclosed",
-        color: "#7dd3fc",
-        width: 12,
-        height: 12,
-      },
-      sourceHandle: "bottom",
-      targetHandle: "top",
-    }));
+          // 4. Agrupamos los nodos por nivel para centrarlos en la pantalla
+          const nodesByDepth = new Map<number, GraphMovie[]>();
+          data.nodes.forEach((n) => {
+            const depth = nodeDepths.get(n.id) || 0;
+            if (!nodesByDepth.has(depth)) nodesByDepth.set(depth, []);
+            nodesByDepth.get(depth)!.push(n);
+          });
 
-    setMainMovieTitle(mainMovie.title);
-    setMovieNodes(mappedNodes);
-    setMovieEdges(mappedEdges);
+          // Constantes de diseño
+          const NODE_WIDTH = 310;
+          const NODE_GAP_X = 120; // Espacio horizontal entre tarjetas
+          const LEVEL_HEIGHT = 660; // Qué tan abajo aparece cada nueva "tanda"
+          const layoutCenterX = window.innerWidth / 2;
+
+          // 5. Asignamos la posición final (X, Y) y el brillo
+          const mappedNodes: Node<MovieNodeData>[] = data.nodes.map((movie) => {
+            const depth = nodeDepths.get(movie.id) || 0;
+            const levelNodes = nodesByDepth.get(depth)!;
+            const indexInLevel = levelNodes.findIndex((n) => n.id === movie.id);
+
+            // Matemáticas para centrar la fila de tarjetas
+            const totalWidth =
+              levelNodes.length * NODE_WIDTH +
+              Math.max(0, levelNodes.length - 1) * NODE_GAP_X;
+            const startX = layoutCenterX - totalWidth / 2;
+
+            const x = startX + indexInLevel * (NODE_WIDTH + NODE_GAP_X);
+            const y = 20 + depth * LEVEL_HEIGHT; // Cada nivel baja 660px
+
+            // Lógica del Brillo: Brilla si es raíz o si tiene hijos
+            const hasChildren = (childrenMap.get(movie.id)?.length || 0) > 0;
+            const isRoot = depth === 0;
+            const isHighlighted = isRoot || hasChildren;
+
+            const desc = descriptionByTarget.get(movie.id) || movie.description;
+
+            return {
+              id: movie.id,
+              type: "movieCard",
+              position: { x, y },
+              data: {
+                title: movie.title,
+                poster: movie.poster,
+                description: desc,
+                genres: movie.genres,
+              },
+              style: isHighlighted
+                ? {
+                    boxShadow:
+                      "0 0 0 1px rgba(125, 211, 252, 0.55), 0 0 24px rgba(59, 130, 246, 0.42)",
+                  }
+                : {},
+            };
+          });
+
+          const mappedEdges: Edge[] = data.edges.map((edge) => ({
+            id: edge.id,
+            source: String(edge.source),
+            target: String(edge.target),
+            animated: true,
+            type: "smoothstep",
+            style: { stroke: "#7dd3fc", strokeWidth: 1.5, opacity: 0.85 },
+            markerEnd: {
+              type: MarkerType.ArrowClosed,
+              color: "#7dd3fc",
+              width: 12,
+              height: 12,
+            },
+            sourceHandle: "bottom",
+            targetHandle: "top",
+          }));
+
+          setMovieNodes(mappedNodes);
+          setMovieEdges(mappedEdges);
+        })
+        .catch((err) => console.log("Esperando datos...", err));
+    };
+
+    // Primera ejecución inmediata
+    fetchAndUpdateGraph();
+
+    // Bucle de consulta cada 1 segundo
+    const intervalo = setInterval(fetchAndUpdateGraph, 1000);
+
+    return () => clearInterval(intervalo);
   }, []);
 
   return (
@@ -268,7 +333,7 @@ export default function App() {
           flexShrink: 0,
         }}
       >
-        Recomendaciones similares a {mainMovieTitle}
+        Recomendaciones similares de películas
       </div>
 
       <ReactFlow
