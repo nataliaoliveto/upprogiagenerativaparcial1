@@ -19,6 +19,31 @@
       "id": "286217",
       "title": "Marte (The Martian)",
       "poster": "https://image.tmdb.org/t/p/w500/hBRK1izFxIH3Nh6vax4ssOHSHVd.jpg"
+    },
+    {
+      "id": "62",
+      "title": "2001: A Space Odyssey",
+      "poster": "https://image.tmdb.org/t/p/w500/ve72VxNqjGMXIZD6YtFm5nN0Qsl.jpg"
+    },
+    {
+      "id": "113",
+      "title": "Contact",
+      "poster": "https://image.tmdb.org/t/p/w500/yA7cB6QNPoV8lFqvVWc4M4FvD0r.jpg"
+    },
+    {
+      "id": "381289",
+      "title": "Ad Astra",
+      "poster": "https://image.tmdb.org/t/p/w500/xBHvZcjRiWyobQ9kxBhO6B2dtRI.jpg"
+    },
+    {
+      "id": "263115",
+      "title": "Gravity",
+      "poster": "https://image.tmdb.org/t/p/w500/1cXh7Jz0w5v5vB0GVuJ1Ycfv9Pz.jpg"
+    },
+    {
+      "id": "141052",
+      "title": "First Man",
+      "poster": "https://image.tmdb.org/t/p/w500/voo32V1IpwXQsq4moQmR5a7Wk3c.jpg"
     }
   ],
   "edges": [
@@ -39,6 +64,36 @@
       "source": "157336",
       "target": "286217",
       "label": "Se enfoca en la exploración espacial, la resiliencia humana y la ciencia aplicada en un entorno marciano."
+    },
+    {
+      "id": "e-157336-62",
+      "source": "157336",
+      "target": "62",
+      "label": "Comparte la inmensidad del espacio, la contemplación filosófica y la exploración del universo como espejo de la humanidad."
+    },
+    {
+      "id": "e-157336-113",
+      "source": "157336",
+      "target": "113",
+      "label": "Busca una conexión profunda con lo desconocido, la ciencia como herramienta para comprender el cosmos y el peso emocional del viaje."
+    },
+    {
+      "id": "e-157336-381289",
+      "source": "157336",
+      "target": "381289",
+      "label": "Combina un viaje espacial solitario, una mirada contemplativa del universo y una exploración emocional del aislamiento."
+    },
+    {
+      "id": "e-157336-263115",
+      "source": "157336",
+      "target": "263115",
+      "label": "Se enfoca en la tensión extrema del espacio, la supervivencia humana y la sensación de vulnerabilidad ante el infinito."
+    },
+    {
+      "id": "e-157336-141052",
+      "source": "157336",
+      "target": "141052",
+      "label": "Relaciona la exploración del espacio con la determinación humana, el costo emocional y la misión como acto de ingeniería y memoria."
     }
   ]
 }
