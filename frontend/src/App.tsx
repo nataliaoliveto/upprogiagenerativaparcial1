@@ -367,6 +367,28 @@ export default function App() {
     });
   }, []);
 
+  const syncWatchlistWithGraph = useCallback(
+    (currentGraphNodes: GraphMovie[]) => {
+      setWatchlist((current) => {
+        const synced = current.filter((movie) =>
+          currentGraphNodes.some((node) => node.id === movie.id),
+        );
+
+        if (synced.length !== current.length) {
+          if (typeof window !== "undefined") {
+            window.localStorage.setItem(
+              WATCHLIST_STORAGE_KEY,
+              JSON.stringify(synced),
+            );
+          }
+        }
+
+        return synced;
+      });
+    },
+    [],
+  );
+
   const movieNodeTypes = useMemo(
     () => ({
       movieCard: (props: NodeProps<MovieNodeData>) => (
@@ -385,7 +407,14 @@ export default function App() {
       fetch("/src/graph_data.json?t=" + new Date().getTime())
         .then((res) => res.json())
         .then((data: GraphData) => {
-          if (!data || !data.nodes || data.nodes.length === 0) return;
+          if (!data || !data.nodes) {
+            syncWatchlistWithGraph([]);
+            return;
+          }
+
+          syncWatchlistWithGraph(data.nodes);
+
+          if (data.nodes.length === 0) return;
 
           const descriptionByTarget = new Map<string, string>();
           const childrenMap = new Map<string, string[]>();
@@ -504,7 +533,7 @@ export default function App() {
     const intervalo = setInterval(fetchAndUpdateGraph, 1000);
 
     return () => clearInterval(intervalo);
-  }, []);
+  }, [syncWatchlistWithGraph]);
 
   return (
     <div
