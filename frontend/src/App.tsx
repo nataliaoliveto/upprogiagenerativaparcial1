@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import ReactFlow, {
   Handle,
   MarkerType,
   Position,
   type Edge,
   type Node,
+  type NodeProps,
 } from "reactflow";
 import "reactflow/dist/style.css";
 
@@ -13,6 +14,14 @@ interface MovieNodeData {
   poster: string;
   description?: string;
   genres?: string[];
+}
+
+interface WatchlistItem {
+  id: string;
+  title: string;
+  poster: string;
+  genres?: string[];
+  status?: "pending" | "completed";
 }
 
 interface GraphMovie {
@@ -35,7 +44,60 @@ interface GraphData {
   edges: GraphEdge[];
 }
 
-const MovieCardNode = ({ data }: { data: MovieNodeData }) => {
+const WATCHLIST_STORAGE_KEY = "watchlist";
+
+const readWatchlistFromStorage = (): WatchlistItem[] => {
+  if (typeof window === "undefined") return [];
+
+  try {
+    const saved = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
+    if (!saved) return [];
+
+    const parsed = JSON.parse(saved);
+    if (!Array.isArray(parsed)) return [];
+
+    return parsed.filter((item): item is WatchlistItem =>
+      Boolean(
+        item &&
+        typeof item.id === "string" &&
+        typeof item.title === "string" &&
+        typeof item.poster === "string" &&
+        (item.genres === undefined || Array.isArray(item.genres)) &&
+        (item.status === undefined ||
+          item.status === "pending" ||
+          item.status === "completed"),
+      ),
+    );
+  } catch {
+    return [];
+  }
+};
+
+const MovieCardNode = ({
+  id,
+  data,
+  watchlist,
+  onToggleWatchlist,
+}: NodeProps<MovieNodeData> & {
+  watchlist: WatchlistItem[];
+  onToggleWatchlist: (movie: WatchlistItem) => void;
+}) => {
+  const isFavorite = watchlist.some((item) => item.id === String(id));
+
+  const handleToggleFavorite = (event: React.MouseEvent<HTMLButtonElement>) => {
+    event.stopPropagation();
+
+    const nextMovie: WatchlistItem = {
+      id: String(id),
+      title: data.title,
+      poster: data.poster,
+      genres: data.genres ?? [],
+      status: "pending",
+    };
+
+    onToggleWatchlist(nextMovie);
+  };
+
   return (
     <div
       style={{
@@ -55,6 +117,50 @@ const MovieCardNode = ({ data }: { data: MovieNodeData }) => {
         position: "relative",
       }}
     >
+      <button
+        type="button"
+        aria-label={
+          isFavorite ? "Quitar de la watchlist" : "Agregar a la watchlist"
+        }
+        className="nodrag nopan"
+        onMouseDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onPointerDown={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onPointerDownCapture={(e) => {
+          e.preventDefault();
+          e.stopPropagation();
+        }}
+        onClick={handleToggleFavorite}
+        style={{
+          position: "absolute",
+          top: 10,
+          right: 10,
+          width: 30,
+          height: 30,
+          borderRadius: "50%",
+          border: "1px solid rgba(250, 204, 21, 0.5)",
+          background: isFavorite
+            ? "rgba(250, 204, 21, 0.2)"
+            : "rgba(15, 23, 42, 0.7)",
+          color: isFavorite ? "#facc15" : "#e2e8f0",
+          fontSize: 18,
+          display: "flex",
+          alignItems: "center",
+          justifyContent: "center",
+          cursor: "pointer",
+          boxShadow: "0 0 0 1px rgba(148, 163, 184, 0.12)",
+          zIndex: 1,
+          pointerEvents: "auto",
+        }}
+      >
+        {isFavorite ? "★" : "☆"}
+      </button>
+
       <Handle
         type="target"
         position={Position.Top}
@@ -144,7 +250,10 @@ const MovieCardNode = ({ data }: { data: MovieNodeData }) => {
               display: "flex",
               gap: "6px",
               flexWrap: "wrap",
+              justifyContent: "center",
+              alignItems: "center",
               marginBottom: "4px",
+              width: "100%",
             }}
           >
             {data.genres.map((genre, idx) => (
@@ -171,13 +280,105 @@ const MovieCardNode = ({ data }: { data: MovieNodeData }) => {
   );
 };
 
-const nodeTypes = {
-  movieCard: MovieCardNode,
-} as const;
-
 export default function App() {
-  const [movieNodes, setMovieNodes] = useState<Node<MovieNodeData>[]>([]);
+  const [graphNodes, setGraphNodes] = useState<Node<MovieNodeData>[]>([]);
   const [movieEdges, setMovieEdges] = useState<Edge[]>([]);
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() =>
+    readWatchlistFromStorage(),
+  );
+  const [watchlistSort, setWatchlistSort] = useState<"asc" | "desc">("asc");
+  const [selectedGenre, setSelectedGenre] = useState<string>("all");
+
+  const availableGenres = useMemo(() => {
+    const unique = new Set<string>();
+
+    watchlist.forEach((movie) => {
+      (movie.genres ?? []).forEach((genre) => {
+        if (genre) unique.add(genre);
+      });
+    });
+
+    return Array.from(unique).sort((a, b) => a.localeCompare(b));
+  }, [watchlist]);
+
+  const sortedWatchlist = useMemo(() => {
+    const copy = [...watchlist];
+
+    copy.sort((a, b) => {
+      const comparison = a.title.localeCompare(b.title);
+      return watchlistSort === "asc" ? comparison : -comparison;
+    });
+
+    if (selectedGenre === "all") return copy;
+
+    return copy.filter((movie) =>
+      (movie.genres ?? []).some((genre) => genre === selectedGenre),
+    );
+  }, [selectedGenre, watchlist, watchlistSort]);
+
+  const pendingWatchlist = useMemo(
+    () => sortedWatchlist.filter((movie) => movie.status !== "completed"),
+    [sortedWatchlist],
+  );
+
+  const completedWatchlist = useMemo(
+    () => sortedWatchlist.filter((movie) => movie.status === "completed"),
+    [sortedWatchlist],
+  );
+
+  const toggleWatchlist = useCallback((movie: WatchlistItem) => {
+    setWatchlist((current) => {
+      const exists = current.some((item) => item.id === movie.id);
+      const next = exists
+        ? current.filter((item) => item.id !== movie.id)
+        : [...current, movie];
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          WATCHLIST_STORAGE_KEY,
+          JSON.stringify(next),
+        );
+      }
+
+      return next;
+    });
+  }, []);
+
+  const toggleMovieStatus = useCallback((movieId: string) => {
+    setWatchlist((current) => {
+      const next: WatchlistItem[] = current.map(
+        (movie): WatchlistItem =>
+          movie.id === movieId
+            ? {
+                ...movie,
+                status: movie.status === "completed" ? "pending" : "completed",
+              }
+            : movie,
+      );
+
+      if (typeof window !== "undefined") {
+        window.localStorage.setItem(
+          WATCHLIST_STORAGE_KEY,
+          JSON.stringify(next),
+        );
+      }
+
+      return next;
+    });
+  }, []);
+
+  const movieNodeTypes = useMemo(
+    () => ({
+      movieCard: (props: NodeProps<MovieNodeData>) => (
+        <MovieCardNode
+          {...props}
+          watchlist={watchlist}
+          onToggleWatchlist={toggleWatchlist}
+        />
+      ),
+    }),
+    [toggleWatchlist, watchlist],
+  );
 
   useEffect(() => {
     const fetchAndUpdateGraph = () => {
@@ -290,7 +491,7 @@ export default function App() {
             targetHandle: "top",
           }));
 
-          setMovieNodes(mappedNodes);
+          setGraphNodes(mappedNodes);
           setMovieEdges(mappedEdges);
         })
         .catch((err) => console.log("Esperando datos...", err));
@@ -336,23 +537,421 @@ export default function App() {
         Recomendaciones similares de películas
       </div>
 
-      <ReactFlow
-        nodes={movieNodes}
-        edges={movieEdges}
-        nodeTypes={nodeTypes}
-        fitView
-        fitViewOptions={{ padding: 0.45, minZoom: 0.65, maxZoom: 1.2 }}
-        proOptions={{ hideAttribution: true }}
-        defaultEdgeOptions={{ type: "smoothstep" }}
-        nodesDraggable={false}
-        nodesConnectable={false}
-        elementsSelectable={false}
-        panOnDrag={true}
-        zoomOnScroll={true}
-        minZoom={0.6}
-        maxZoom={1.5}
-        style={{ background: "#0f172a", width: "100%", height: "100%" }}
-      />
+      <div
+        style={{
+          position: "relative",
+          flex: 1,
+          width: "100%",
+        }}
+      >
+        <ReactFlow
+          nodes={graphNodes}
+          edges={movieEdges}
+          nodeTypes={movieNodeTypes}
+          fitView
+          fitViewOptions={{ padding: 0.45, minZoom: 0.65, maxZoom: 1.2 }}
+          proOptions={{ hideAttribution: true }}
+          defaultEdgeOptions={{ type: "smoothstep" }}
+          nodesDraggable={false}
+          nodesConnectable={false}
+          elementsSelectable={false}
+          panOnDrag={true}
+          zoomOnScroll={true}
+          minZoom={0.6}
+          maxZoom={1.5}
+          style={{ background: "#0f172a", width: "100%", height: "100%" }}
+        />
+
+        <aside
+          style={{
+            position: "absolute",
+            right: 18,
+            top: 18,
+            width: 260,
+            maxHeight: "calc(100% - 36px)",
+            background: "rgba(15, 23, 42, 0.9)",
+            border: "1px solid rgba(148, 163, 184, 0.25)",
+            borderRadius: 16,
+            boxShadow: "0 12px 32px rgba(15, 23, 42, 0.42)",
+            padding: 14,
+            boxSizing: "border-box",
+            overflowY: "auto",
+            zIndex: 5,
+          }}
+        >
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+              marginBottom: 12,
+            }}
+          >
+            <h4
+              style={{
+                margin: 0,
+                fontSize: 18,
+                fontWeight: 700,
+                color: "#f8fafc",
+              }}
+            >
+              Watchlist
+            </h4>
+            <span
+              style={{
+                fontSize: 12,
+                color: "#facc15",
+                background: "rgba(250, 204, 21, 0.12)",
+                border: "1px solid rgba(250, 204, 21, 0.2)",
+                borderRadius: 999,
+                padding: "4px 8px",
+              }}
+            >
+              {watchlist.length}
+            </span>
+          </div>
+
+          <div
+            style={{
+              display: "flex",
+              gap: 8,
+              marginBottom: 14,
+            }}
+          >
+            <button
+              type="button"
+              onClick={() =>
+                setWatchlistSort((current) =>
+                  current === "asc" ? "desc" : "asc",
+                )
+              }
+              style={{
+                flex: 1,
+                border: "1px solid rgba(148, 163, 184, 0.25)",
+                background: "rgba(56, 189, 248, 0.18)",
+                color: "#f8fafc",
+                borderRadius: 8,
+                padding: "6px 8px",
+                cursor: "pointer",
+                fontWeight: 600,
+                fontSize: 12,
+              }}
+            >
+              {watchlistSort === "asc" ? "A–Z" : "Z–A"}
+            </button>
+          </div>
+
+          {availableGenres.length > 0 && (
+            <div
+              style={{
+                display: "flex",
+                flexWrap: "wrap",
+                gap: 8,
+                marginBottom: 14,
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => setSelectedGenre("all")}
+                style={{
+                  border: "1px solid rgba(148, 163, 184, 0.25)",
+                  background:
+                    selectedGenre === "all"
+                      ? "rgba(250, 204, 21, 0.18)"
+                      : "rgba(15, 23, 42, 0.8)",
+                  color: "#f8fafc",
+                  borderRadius: 999,
+                  padding: "5px 10px",
+                  cursor: "pointer",
+                  fontWeight: 700,
+                  fontSize: 11,
+                }}
+              >
+                Todas
+              </button>
+              {availableGenres.map((genre) => (
+                <button
+                  key={genre}
+                  type="button"
+                  onClick={() => setSelectedGenre(genre)}
+                  style={{
+                    border: "1px solid rgba(148, 163, 184, 0.25)",
+                    background:
+                      selectedGenre === genre
+                        ? "rgba(56, 189, 248, 0.18)"
+                        : "rgba(15, 23, 42, 0.8)",
+                    color: selectedGenre === genre ? "#7dd3fc" : "#e2e8f0",
+                    borderRadius: 999,
+                    padding: "5px 10px",
+                    cursor: "pointer",
+                    fontWeight: 700,
+                    fontSize: 11,
+                    textTransform: "uppercase",
+                  }}
+                >
+                  {genre}
+                </button>
+              ))}
+            </div>
+          )}
+
+          {watchlist.length === 0 ? (
+            <p
+              style={{
+                margin: 0,
+                color: "#cbd5e1",
+                fontSize: 14,
+                lineHeight: 1.5,
+              }}
+            >
+              No hay películas guardadas todavía.
+            </p>
+          ) : sortedWatchlist.length === 0 ? (
+            <p
+              style={{
+                margin: 0,
+                color: "#cbd5e1",
+                fontSize: 14,
+                lineHeight: 1.5,
+              }}
+            >
+              No hay películas para este género.
+            </p>
+          ) : (
+            <div style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+              <div>
+                <h5
+                  style={{
+                    margin: "0 0 8px",
+                    color: "#f8fafc",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  Pendientes
+                </h5>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
+                  {pendingWatchlist.map((movie) => (
+                    <div
+                      key={movie.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        background: "rgba(30, 41, 59, 0.8)",
+                        border: "1px solid rgba(100, 116, 139, 0.35)",
+                        borderRadius: 12,
+                        padding: 8,
+                      }}
+                    >
+                      <img
+                        src={movie.poster}
+                        alt={movie.title}
+                        style={{
+                          width: 42,
+                          height: 60,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          gap: 2,
+                          flex: 1,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "#f8fafc",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            lineHeight: 1.3,
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {movie.title}
+                        </span>
+                        {movie.genres && movie.genres.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 4,
+                              marginTop: 2,
+                            }}
+                          >
+                            {movie.genres.map((genre) => (
+                              <span
+                                key={`${movie.id}-${genre}`}
+                                style={{
+                                  color: "#7dd3fc",
+                                  background: "rgba(56, 189, 248, 0.12)",
+                                  border: "1px solid rgba(125, 211, 252, 0.22)",
+                                  borderRadius: 999,
+                                  fontSize: 8,
+                                  letterSpacing: "0.4px",
+                                  padding: "1px 5px",
+                                  lineHeight: 1.4,
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                {genre}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleMovieStatus(movie.id)}
+                        aria-label={`Marcar como vista: ${movie.title}`}
+                        style={{
+                          border: "1px solid rgba(34, 197, 94, 0.4)",
+                          background: "rgba(34, 197, 94, 0.12)",
+                          color: "#86efac",
+                          borderRadius: 999,
+                          width: 26,
+                          height: 26,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          fontSize: 13,
+                          fontWeight: 700,
+                          lineHeight: 1,
+                        }}
+                      >
+                        ✓
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div>
+                <h5
+                  style={{
+                    margin: "0 0 8px",
+                    color: "#f8fafc",
+                    fontSize: 13,
+                    fontWeight: 700,
+                  }}
+                >
+                  Vistas
+                </h5>
+                <div
+                  style={{ display: "flex", flexDirection: "column", gap: 10 }}
+                >
+                  {completedWatchlist.map((movie) => (
+                    <div
+                      key={movie.id}
+                      style={{
+                        display: "flex",
+                        alignItems: "center",
+                        gap: 10,
+                        background: "rgba(22, 101, 52, 0.25)",
+                        border: "1px solid rgba(34, 197, 94, 0.35)",
+                        borderRadius: 12,
+                        padding: 8,
+                      }}
+                    >
+                      <img
+                        src={movie.poster}
+                        alt={movie.title}
+                        style={{
+                          width: 42,
+                          height: 60,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          flexShrink: 0,
+                        }}
+                      />
+                      <div
+                        style={{
+                          display: "flex",
+                          flexDirection: "column",
+                          alignItems: "flex-start",
+                          gap: 2,
+                          flex: 1,
+                        }}
+                      >
+                        <span
+                          style={{
+                            color: "#f8fafc",
+                            fontSize: 13,
+                            fontWeight: 600,
+                            lineHeight: 1.3,
+                            wordBreak: "break-word",
+                          }}
+                        >
+                          {movie.title}
+                        </span>
+                        {movie.genres && movie.genres.length > 0 && (
+                          <div
+                            style={{
+                              display: "flex",
+                              flexWrap: "wrap",
+                              gap: 4,
+                              marginTop: 2,
+                            }}
+                          >
+                            {movie.genres.map((genre) => (
+                              <span
+                                key={`${movie.id}-${genre}`}
+                                style={{
+                                  color: "#86efac",
+                                  background: "rgba(34, 197, 94, 0.12)",
+                                  border: "1px solid rgba(134, 239, 172, 0.2)",
+                                  borderRadius: 999,
+                                  fontSize: 8,
+                                  letterSpacing: "0.4px",
+                                  padding: "1px 5px",
+                                  lineHeight: 1.4,
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                {genre}
+                              </span>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => toggleMovieStatus(movie.id)}
+                        aria-label={`Marcar como pendiente: ${movie.title}`}
+                        style={{
+                          border: "1px solid rgba(239, 68, 68, 0.4)",
+                          background: "rgba(239, 68, 68, 0.12)",
+                          color: "#fca5a5",
+                          borderRadius: 999,
+                          width: 26,
+                          height: 26,
+                          display: "flex",
+                          alignItems: "center",
+                          justifyContent: "center",
+                          cursor: "pointer",
+                          fontSize: 14,
+                          fontWeight: 700,
+                          lineHeight: 1,
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+        </aside>
+      </div>
     </div>
   );
 }
