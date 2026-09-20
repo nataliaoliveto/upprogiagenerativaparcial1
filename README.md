@@ -6,6 +6,16 @@ Este proyecto tiene como objetivo demostrar el dominio de flujos de trabajo asis
 
 La aplicación consiste en un **Motor de Recomendación de Películas basado en Grafos de Conocimiento**. El proyecto utiliza un Agente de IA en el IDE que, mediante un servidor MCP personalizado, consulta datos reales de The Movie Database (TMDB) y actualiza de forma autónoma una base de datos local de relaciones (JSON). El frontend, desarrollado en React con React Flow, lee esta base local mediante una estrategia de _polling_ asíncrono y renderiza el árbol jerárquico de películas, sus metadatos (géneros, sinopsis) y sus conexiones lógicas en tiempo real.
 
+## 🧠 Core del Proyecto: Herramientas MCP y Arquitectura
+
+El núcleo de este trabajo reside en el servidor MCP local, construido sobre las clases `McpServer` y `StdioServerTransport` del `@modelcontextprotocol/sdk`. Esto permite la comunicación estándar (stdio) entre el IDE y nuestro código Node.js.
+
+Se definieron tres herramientas (`tools`) validadas estrictamente con `zod` para que el Agente interactúe de forma autónoma y sin alucinaciones:
+
+1. **`read_graph` (Lectura de Estado):** Le permite al Agente leer el archivo `graph_data.json` local mediante `fs.readFile`. Es el "contexto de memoria" de la IA: antes de recomendar, usa esta herramienta para saber qué películas ya existen en el lienzo y de dónde debe colgar las nuevas conexiones.
+2. **`search_tmdb` (Extracción de Datos):** El puente hacia el mundo real. Recibe el nombre de una película validado por `zod` y ejecuta una petición HTTP asíncrona (`fetch`) a la API REST de TMDB (`api.themoviedb.org/3/search/movie`). El servidor filtra la respuesta cruda y le devuelve a la IA un objeto limpio con el ID oficial, título, sinopsis (`overview`) y la URL del póster renderizado, garantizando precisión absoluta en los datos visuales.
+3. **`add_to_graph` (Persistencia por Lotes):** Herramienta de escritura estructurada. Utiliza una arquitectura de lotes (_batching_) exigiendo un array (`z.array`) que contiene tanto la película inicial como sus recomendaciones. La función procesa los nodos y aristas (`edges`) en memoria y ejecuta una única escritura asíncrona con `fs.writeFile`. Esto previene condiciones de carrera (_race conditions_) y colapsos de estado en el _polling_ del frontend de React.
+
 ## ⚙️ Requisitos previos para ejecutarlo
 
 Para ejecutar este proyecto en tu entorno local, necesitas tener instalado:
