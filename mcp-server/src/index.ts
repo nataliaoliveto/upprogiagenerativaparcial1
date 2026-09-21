@@ -133,7 +133,6 @@ server.registerTool(
       const fileContent = await fs.readFile(DATA_FILE_PATH, "utf-8");
       const graph = JSON.parse(fileContent);
 
-      // Procesamos todo el lote en memoria
       for (const movie of movies) {
         if (!graph.nodes.find((n: any) => n.id === movie.movieId)) {
           graph.nodes.push({
@@ -155,7 +154,6 @@ server.registerTool(
         }
       }
 
-      // Una única escritura en disco para que Vite procese todo sin trabarse
       await fs.writeFile(DATA_FILE_PATH, JSON.stringify(graph, null, 2));
       return {
         content: [
