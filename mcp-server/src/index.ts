@@ -86,56 +86,221 @@ server.registerTool(
   },
 );
 
-// 4. Herramienta 3: Agregar al Grafo
+// 4. Herramienta 3: Agregar al Grafo (Versión Batching)
 server.registerTool(
   "add_to_graph",
   {
     description:
-      "Usa esta herramienta COMO PASO FINAL para guardar tu película en el JSON. Si es la PRIMERA película del grafo, omite sourceId y reason.",
+      "Usa esta herramienta COMO PASO FINAL para guardar todas las películas en el JSON de una sola vez. Envía la película inicial y sus recomendaciones juntas en el array.",
     inputSchema: {
-      movieId: z.string(),
-      title: z.string(),
-      poster: z.string().describe("URL completa del póster"),
-      sourceId: z
-        .string()
-        .optional()
-        .describe("ID del nodo de origen (Omitir si es la primera película)"),
-      reason: z
-        .string()
-        .optional()
-        .describe(
-          "Por qué elegiste recomendarla (Omitir si es la primera película)",
-        ),
+      movies: z
+        .array(
+          z.object({
+            movieId: z.string(),
+            title: z.string(),
+            poster: z.string().describe("URL completa del póster"),
+            sourceId: z
+              .string()
+              .optional()
+              .describe(
+                "ID del nodo de origen (Omitir si es la primera película)",
+              ),
+            reason: z
+              .string()
+              .optional()
+              .describe(
+                "Por qué elegiste recomendarla (Omitir si es la primera película)",
+              ),
+            genres: z
+              .array(z.string())
+              .optional()
+              .describe(
+                "Lista de 2 o 3 géneros de la película (ej: ['Ciencia Ficción', 'Drama'])",
+              ),
+            description: z
+              .string()
+              .optional()
+              .describe(
+                "Breve sinopsis de la película (Solo para la película inicial)",
+              ),
+          }),
+        )
+        .describe("Lista de películas a agregar al grafo en lote."),
     },
   },
-  async ({ movieId, title, poster, sourceId, reason }) => {
+  async ({ movies }) => {
     try {
       const fileContent = await fs.readFile(DATA_FILE_PATH, "utf-8");
       const graph = JSON.parse(fileContent);
 
-      if (!graph.nodes.find((n: any) => n.id === movieId)) {
-        graph.nodes.push({ id: movieId, title, poster });
-      }
+      for (const movie of movies) {
+        if (!graph.nodes.find((n: any) => n.id === movie.movieId)) {
+          graph.nodes.push({
+            id: movie.movieId,
+            title: movie.title,
+            poster: movie.poster,
+            genres: movie.genres,
+            description: movie.description,
+          });
+        }
 
-      if (sourceId && reason) {
-        graph.edges.push({
-          id: `e-${sourceId}-${movieId}`,
-          source: sourceId,
-          target: movieId,
-          label: reason,
-        });
+        if (movie.sourceId && movie.reason) {
+          graph.edges.push({
+            id: `e-${movie.sourceId}-${movie.movieId}`,
+            source: movie.sourceId,
+            target: movie.movieId,
+            label: movie.reason,
+          });
+        }
       }
 
       await fs.writeFile(DATA_FILE_PATH, JSON.stringify(graph, null, 2));
       return {
         content: [
-          { type: "text", text: `Success! Movie ${title} added to graph.` },
+          {
+            type: "text",
+            text: `Success! ${movies.length} movies added to graph.`,
+          },
         ],
       };
     } catch (error) {
       return {
         content: [
-          { type: "text", text: `Error modifying graph_data.json: ${error}` },
+          { type: "text", text: `Error modifying graph data: ${error}` },
+        ],
+      };
+    }
+  },
+);
+
+// 5. Herramienta 4: Eliminar del Grafo (Con Borrado en Cascada)
+server.registerTool(
+  "remove_from_graph",
+  {
+    description:
+      "Usa esta herramienta para eliminar una película. Eliminará el nodo principal y, si tiene recomendaciones hijas, también las eliminará junto con sus flechas.",
+    inputSchema: {
+      movieId: z.string().describe("El ID exacto de la película a eliminar"),
+    },
+  },
+  async ({ movieId }) => {
+    try {
+      const fileContent = await fs.readFile(DATA_FILE_PATH, "utf-8");
+      const graph = JSON.parse(fileContent);
+
+      // 1. Identificar si este nodo tiene "hijos" (recomendaciones que nacen de él)
+      const edgesFromNode = graph.edges.filter(
+        (e: any) => e.source === movieId,
+      );
+      const childNodeIds = edgesFromNode.map((e: any) => e.target);
+
+      // 2. Agrupar todos los nodos a eliminar (El principal + sus hijos)
+      const nodesToDelete = new Set([movieId, ...childNodeIds]);
+
+      // 3. Filtrar los nodos para quitar los eliminados
+      const initialNodeCount = graph.nodes.length;
+      graph.nodes = graph.nodes.filter((n: any) => !nodesToDelete.has(n.id));
+
+      if (graph.nodes.length === initialNodeCount) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `No se encontró la película con ID ${movieId} en el grafo.`,
+            },
+          ],
+        };
+      }
+
+      // 4. Filtrar las aristas (quitar flechas relacionadas a cualquiera de los nodos borrados)
+      graph.edges = graph.edges.filter(
+        (e: any) =>
+          !nodesToDelete.has(e.source) && !nodesToDelete.has(e.target),
+      );
+
+      // 5. Guardar los cambios
+      await fs.writeFile(DATA_FILE_PATH, JSON.stringify(graph, null, 2));
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `¡Éxito! Se eliminaron ${nodesToDelete.size} películas del grafo (nodo principal y asociados).`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          { type: "text", text: `Error al eliminar datos del grafo: ${error}` },
+        ],
+      };
+    }
+  },
+);
+
+// 6. Herramienta 5: Limpiar Recomendaciones (Deja el padre, borra los hijos)
+server.registerTool(
+  "clear_recommendations",
+  {
+    description:
+      "Usa esta herramienta cuando el usuario quiera borrar las películas relacionadas/recomendadas a partir de una película, pero conservando la película original.",
+    inputSchema: {
+      movieId: z
+        .string()
+        .describe(
+          "El ID de la película original cuyas recomendaciones quieres borrar",
+        ),
+    },
+  },
+  async ({ movieId }) => {
+    try {
+      const fileContent = await fs.readFile(DATA_FILE_PATH, "utf-8");
+      const graph = JSON.parse(fileContent);
+
+      // 1. Identificar solo a los "hijos" (nodos destino de las flechas que salen del movieId)
+      const edgesFromNode = graph.edges.filter(
+        (e: any) => e.source === movieId,
+      );
+      const childNodeIds = new Set(edgesFromNode.map((e: any) => e.target));
+
+      if (childNodeIds.size === 0) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: `La película con ID ${movieId} no tiene recomendaciones generadas para borrar.`,
+            },
+          ],
+        };
+      }
+
+      // 2. Filtrar los nodos: mantenemos todos MENOS los hijos
+      graph.nodes = graph.nodes.filter((n: any) => !childNodeIds.has(n.id));
+
+      // 3. Filtrar las aristas: quitamos cualquier flecha conectada a los hijos borrados
+      graph.edges = graph.edges.filter(
+        (e: any) => !childNodeIds.has(e.source) && !childNodeIds.has(e.target),
+      );
+
+      // 4. Guardar los cambios
+      await fs.writeFile(DATA_FILE_PATH, JSON.stringify(graph, null, 2));
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: `¡Éxito! Se eliminaron ${childNodeIds.size} recomendaciones, pero se conservó la película original.`,
+          },
+        ],
+      };
+    } catch (error) {
+      return {
+        content: [
+          {
+            type: "text",
+            text: `Error al limpiar las recomendaciones: ${error}`,
+          },
         ],
       };
     }
