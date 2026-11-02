@@ -2,6 +2,8 @@ import type { WatchlistItem } from "./MovieCardNode";
 
 interface Props {
   watchlist: WatchlistItem[];
+  isLoaded: boolean;
+  watchlistError: string | null;
   sortedWatchlist: WatchlistItem[];
   pendingWatchlist: WatchlistItem[];
   completedWatchlist: WatchlistItem[];
@@ -15,6 +17,8 @@ interface Props {
 
 export const WatchlistSidebar = ({
   watchlist,
+  isLoaded,
+  watchlistError,
   sortedWatchlist,
   pendingWatchlist,
   completedWatchlist,
@@ -54,7 +58,7 @@ export const WatchlistSidebar = ({
         <h4
           style={{ margin: 0, fontSize: 18, fontWeight: 700, color: "#f8fafc" }}
         >
-          Watchlist
+          Favoritas
         </h4>
         <span
           style={{
@@ -69,6 +73,18 @@ export const WatchlistSidebar = ({
           {watchlist.length}
         </span>
       </div>
+
+      {watchlistError && (
+        <p role="alert" style={{ color: "#fca5a5", fontSize: 12 }}>
+          No se pudo sincronizar la watchlist: {watchlistError}
+        </p>
+      )}
+
+      {!isLoaded && !watchlistError && (
+        <p style={{ color: "#cbd5e1", fontSize: 12 }}>
+          Cargando watchlist...
+        </p>
+      )}
 
       <div style={{ display: "flex", gap: 8, marginBottom: 14 }}>
         <button
@@ -219,6 +235,7 @@ export const WatchlistSidebar = ({
                   </div>
                   <button
                     type="button"
+                    disabled={!isLoaded}
                     onClick={() => toggleMovieStatus(movie.id)}
                     style={{
                       border: "1px solid rgba(34, 197, 94, 0.4)",
@@ -300,6 +317,7 @@ export const WatchlistSidebar = ({
                   </div>
                   <button
                     type="button"
+                    disabled={!isLoaded}
                     onClick={() => toggleMovieStatus(movie.id)}
                     style={{
                       border: "1px solid rgba(239, 68, 68, 0.4)",

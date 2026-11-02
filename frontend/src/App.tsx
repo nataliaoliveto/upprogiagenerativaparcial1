@@ -44,16 +44,21 @@ export default function App() {
         <MovieCardNode
           {...props}
           watchlist={watchlistCtrl.watchlist}
+          watchlistReady={watchlistCtrl.isLoaded}
           onToggleWatchlist={watchlistCtrl.toggleWatchlist}
         />
       ),
     }),
-    [watchlistCtrl.toggleWatchlist, watchlistCtrl.watchlist],
+    [
+      watchlistCtrl.isLoaded,
+      watchlistCtrl.toggleWatchlist,
+      watchlistCtrl.watchlist,
+    ],
   );
 
   useEffect(() => {
     const fetchAndUpdateGraph = () => {
-      fetch("/src/graph_data.json?t=" + new Date().getTime())
+      fetch("/src/data/graph_data.json?t=" + new Date().getTime())
         .then((res) => res.json())
         .then((data: GraphData) => {
           if (!data || !data.nodes) {
@@ -179,6 +184,11 @@ export default function App() {
           padding: 24,
         }}
       >
+        {watchlistCtrl.watchlistError && (
+          <p role="alert" style={{ color: "#b91c1c", textAlign: "center" }}>
+            No se pudo cargar la watchlist: {watchlistCtrl.watchlistError}
+          </p>
+        )}
         <p style={{ textAlign: "center", fontSize: 18, fontWeight: "bold" }}>
           Bienvenida a la búsqueda de recomendaciones de películas
           <br />

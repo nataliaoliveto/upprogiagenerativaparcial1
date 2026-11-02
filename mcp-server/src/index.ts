@@ -20,6 +20,7 @@ const DATA_FILE_PATH = path.join(
   process.cwd(),
   "frontend",
   "src",
+  "data",
   "graph_data.json",
 );
 

@@ -1,38 +1,113 @@
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useEffect, useRef } from "react";
 import type { WatchlistItem } from "../components/MovieCardNode.tsx";
 
-const WATCHLIST_STORAGE_KEY = "watchlist";
+const WATCHLIST_API_URL = "/api/watchlist";
 
-const readWatchlistFromStorage = (): WatchlistItem[] => {
-  if (typeof window === "undefined") return [];
-  try {
-    const saved = window.localStorage.getItem(WATCHLIST_STORAGE_KEY);
-    if (!saved) return [];
-    const parsed = JSON.parse(saved);
-    if (!Array.isArray(parsed)) return [];
-    return parsed.filter((item): item is WatchlistItem =>
-      Boolean(
-        item &&
-        typeof item.id === "string" &&
-        typeof item.title === "string" &&
-        typeof item.poster === "string" &&
-        (item.genres === undefined || Array.isArray(item.genres)) &&
-        (item.status === undefined ||
-          item.status === "pending" ||
-          item.status === "completed"),
-      ),
-    );
-  } catch {
-    return [];
+const isWatchlistItem = (value: unknown): value is WatchlistItem =>
+  value !== null &&
+  typeof value === "object" &&
+  "id" in value &&
+  typeof value.id === "string" &&
+  "title" in value &&
+  typeof value.title === "string" &&
+  "poster" in value &&
+  typeof value.poster === "string" &&
+  (!("genres" in value) ||
+    value.genres === undefined ||
+    (Array.isArray(value.genres) &&
+      value.genres.every((genre) => typeof genre === "string"))) &&
+  (!("status" in value) ||
+    value.status === undefined ||
+    value.status === "pending" ||
+    value.status === "completed");
+
+const parseWatchlist = (value: unknown): WatchlistItem[] => {
+  if (!Array.isArray(value) || !value.every(isWatchlistItem)) {
+    throw new Error("El archivo de watchlist tiene un formato inválido.");
+  }
+  return value;
+};
+
+const requestWatchlist = async (): Promise<WatchlistItem[]> => {
+  const response = await fetch(WATCHLIST_API_URL);
+  if (!response.ok) {
+    throw new Error(`No se pudo leer la watchlist (${response.status}).`);
+  }
+  return parseWatchlist(await response.json());
+};
+
+const saveWatchlist = async (items: WatchlistItem[]): Promise<void> => {
+  const response = await fetch(WATCHLIST_API_URL, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(items),
+  });
+  if (!response.ok) {
+    throw new Error(`No se pudo guardar la watchlist (${response.status}).`);
   }
 };
 
+const errorMessage = (error: unknown): string =>
+  error instanceof Error ? error.message : "Error inesperado en la watchlist.";
+
 export const useWatchlist = () => {
-  const [watchlist, setWatchlist] = useState<WatchlistItem[]>(() =>
-    readWatchlistFromStorage(),
-  );
+  const [watchlist, setWatchlist] = useState<WatchlistItem[]>([]);
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [watchlistError, setWatchlistError] = useState<string | null>(null);
   const [watchlistSort, setWatchlistSort] = useState<"asc" | "desc">("asc");
   const [selectedGenre, setSelectedGenre] = useState<string>("all");
+  const watchlistRef = useRef<WatchlistItem[]>([]);
+  const graphNodesRef = useRef<{ id: string }[] | null>(null);
+  const writeQueueRef = useRef<Promise<void>>(Promise.resolve());
+
+  const persistWatchlist = useCallback((items: WatchlistItem[]) => {
+    const write = writeQueueRef.current.then(() => saveWatchlist(items));
+    writeQueueRef.current = write.then(
+      () => setWatchlistError(null),
+      (error: unknown) => setWatchlistError(errorMessage(error)),
+    );
+  }, []);
+
+  const replaceWatchlist = useCallback(
+    (items: WatchlistItem[], persist = true) => {
+      watchlistRef.current = items;
+      setWatchlist(items);
+      if (persist) persistWatchlist(items);
+    },
+    [persistWatchlist],
+  );
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadWatchlist = async () => {
+      try {
+        let items = await requestWatchlist();
+
+        const graphNodes = graphNodesRef.current;
+        if (graphNodes) {
+          const graphIds = new Set(graphNodes.map((node) => node.id));
+          const synced = items.filter((movie) => graphIds.has(movie.id));
+          if (synced.length !== items.length) {
+            items = synced;
+            await saveWatchlist(items);
+          }
+        }
+
+        if (cancelled) return;
+        replaceWatchlist(items, false);
+        setIsLoaded(true);
+        setWatchlistError(null);
+      } catch (error) {
+        if (!cancelled) setWatchlistError(errorMessage(error));
+      }
+    };
+
+    void loadWatchlist();
+    return () => {
+      cancelled = true;
+    };
+  }, [replaceWatchlist]);
 
   const availableGenres = useMemo(() => {
     const unique = new Set<string>();
@@ -66,66 +141,53 @@ export const useWatchlist = () => {
     [sortedWatchlist],
   );
 
-  const toggleWatchlist = useCallback((movie: WatchlistItem) => {
-    setWatchlist((current) => {
+  const toggleWatchlist = useCallback(
+    (movie: WatchlistItem) => {
+      if (!isLoaded) return;
+      const current = watchlistRef.current;
       const exists = current.some((item) => item.id === movie.id);
       const next = exists
         ? current.filter((item) => item.id !== movie.id)
         : [...current, movie];
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(
-          WATCHLIST_STORAGE_KEY,
-          JSON.stringify(next),
-        );
-      }
-      return next;
-    });
-  }, []);
+      replaceWatchlist(next);
+    },
+    [isLoaded, replaceWatchlist],
+  );
 
-  const toggleMovieStatus = useCallback((movieId: string) => {
-    setWatchlist((current) => {
-      const next: WatchlistItem[] = current.map((movie) => {
+  const toggleMovieStatus = useCallback(
+    (movieId: string) => {
+      if (!isLoaded) return;
+      const next: WatchlistItem[] = watchlistRef.current.map((movie) => {
         if (movie.id !== movieId) return movie;
-
-        const nextStatus: WatchlistItem["status"] =
+        const status: WatchlistItem["status"] =
           movie.status === "completed" ? "pending" : "completed";
-
         return {
           ...movie,
-          status: nextStatus,
+          status,
         };
       });
-
-      if (typeof window !== "undefined") {
-        window.localStorage.setItem(
-          WATCHLIST_STORAGE_KEY,
-          JSON.stringify(next),
-        );
-      }
-      return next;
-    });
-  }, []);
+      replaceWatchlist(next);
+    },
+    [isLoaded, replaceWatchlist],
+  );
 
   const syncWatchlistWithGraph = useCallback(
     (currentGraphNodes: { id: string }[]) => {
-      setWatchlist((current) => {
-        const synced = current.filter((movie) =>
-          currentGraphNodes.some((node) => node.id === movie.id),
-        );
-        if (synced.length !== current.length && typeof window !== "undefined") {
-          window.localStorage.setItem(
-            WATCHLIST_STORAGE_KEY,
-            JSON.stringify(synced),
-          );
-        }
-        return synced;
-      });
+      graphNodesRef.current = currentGraphNodes;
+      if (!isLoaded) return;
+
+      const graphIds = new Set(currentGraphNodes.map((node) => node.id));
+      const current = watchlistRef.current;
+      const synced = current.filter((movie) => graphIds.has(movie.id));
+      if (synced.length !== current.length) replaceWatchlist(synced);
     },
-    [],
+    [isLoaded, replaceWatchlist],
   );
 
   return {
     watchlist,
+    isLoaded,
+    watchlistError,
     watchlistSort,
     setWatchlistSort,
     selectedGenre,

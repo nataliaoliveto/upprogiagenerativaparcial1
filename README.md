@@ -35,7 +35,8 @@ Todo el código se encuentra centralizado en este único repositorio para evitar
 - `/mcp-server`: Servidor MCP local desarrollado en TypeScript con `@modelcontextprotocol/sdk`. Implementa operaciones de _batching_ para optimizar la escritura en disco.
 - `.vscode/mcp.json`: Archivo de configuración para conectar el cliente MCP del IDE con el servidor local.
 - `.github/copilot-instructions.md`: Sistema de reglas y protocolos estrictos para condicionar el comportamiento secuencial del Agente de IA.
-- `frontend/src/graph_data.json`: Archivo de persistencia local que actúa como puente de estado reactivo entre el Agente MCP y la interfaz visual.
+- `frontend/src/data/graph_data.json`: Archivo de persistencia local que actúa como puente de estado reactivo entre el Agente MCP y la interfaz visual.
+- `frontend/src/data/watchlist_data.json`: Archivo de persistencia de la watchlist, compartido por la interfaz y disponible para futuras herramientas de agentes.
 
 ## 🛠️ Instrucciones de instalación
 
@@ -72,12 +73,15 @@ npm run dev
 ```
 
 El frontend estará disponible localmente para visualizar en `http://localhost:5173` por defecto.
+El servidor de desarrollo de Vite también expone una API local para leer y guardar `watchlist_data.json`; la interfaz usa esa API en lugar de `localStorage`.
+
+La watchlist usa únicamente `watchlist_data.json`; no se lee ni se migra información desde `localStorage`. Si el JSON está vacío, la watchlist comienza vacía (`[]`). Las operaciones de agregar, quitar, marcar como vista y sincronizar con las películas del grafo se guardan en el JSON.
 
 ### 4. Inicialización del Agente en VS Code
 
 1. Recarga la ventana de Visual Studio Code (`Developer: Reload Window`) para que la extensión de IA lea el archivo `.vscode/mcp.json` y conecte el servidor local.
 2. Verifica en tu panel de chat (ej. Copilot Edits) que las herramientas `search_tmdb` y `add_to_graph` estén detectadas y disponibles.
-3. Asegúrate de que el archivo `frontend/src/graph_data.json` esté inicializado con la estructura básica vacía:
+3. Asegúrate de que el archivo `frontend/src/data/graph_data.json` esté inicializado con la estructura básica vacía:
 
 ```json
 {
@@ -85,6 +89,8 @@ El frontend estará disponible localmente para visualizar en `http://localhost:5
   "edges": []
 }
 ```
+
+El archivo `frontend/src/data/watchlist_data.json` debe contener un array JSON, por ejemplo `[]` cuando no haya películas guardadas.
 
 ## 🤖 Uso y Ejecución de la Demostración
 
