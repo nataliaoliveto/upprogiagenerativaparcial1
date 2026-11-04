@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import ReactFlow, {
   MarkerType,
   type Edge,
@@ -7,6 +7,7 @@ import ReactFlow, {
 } from "reactflow";
 import "reactflow/dist/style.css";
 
+import { InputBar } from "./components/InputBar";
 import { MovieCardNode, type MovieNodeData } from "./components/MovieCardNode";
 import { WatchlistSidebar } from "./components/WatchlistSidebar";
 import { useWatchlist } from "./hooks/useWatchlist";
@@ -34,6 +35,9 @@ interface GraphData {
 export default function App() {
   const [graphNodes, setGraphNodes] = useState<Node<MovieNodeData>[]>([]);
   const [movieEdges, setMovieEdges] = useState<Edge[]>([]);
+  const [graphRevision, setGraphRevision] = useState(0);
+  const [lastSearch, setLastSearch] = useState("");
+  const graphSnapshotRef = useRef<string | null>(null);
 
   const watchlistCtrl = useWatchlist();
   const { syncWatchlistWithGraph } = watchlistCtrl;
@@ -44,25 +48,47 @@ export default function App() {
         <MovieCardNode
           {...props}
           watchlist={watchlistCtrl.watchlist}
+          watchlistReady={watchlistCtrl.isLoaded}
           onToggleWatchlist={watchlistCtrl.toggleWatchlist}
         />
       ),
     }),
-    [watchlistCtrl.toggleWatchlist, watchlistCtrl.watchlist],
+    [
+      watchlistCtrl.isLoaded,
+      watchlistCtrl.toggleWatchlist,
+      watchlistCtrl.watchlist,
+    ],
   );
 
   useEffect(() => {
     const fetchAndUpdateGraph = () => {
-      fetch("/src/graph_data.json?t=" + new Date().getTime())
-        .then((res) => res.json())
+      fetch("/src/data/graph_data.json?t=" + new Date().getTime())
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`Error al leer el grafo: ${res.status}`);
+          }
+          return res.json() as Promise<GraphData>;
+        })
         .then((data: GraphData) => {
-          if (!data || !data.nodes) {
-            syncWatchlistWithGraph([]);
-            return;
+          if (
+            !data ||
+            !Array.isArray(data.nodes) ||
+            !Array.isArray(data.edges)
+          ) {
+            throw new Error("El archivo del grafo tiene un formato inválido.");
           }
 
           syncWatchlistWithGraph(data.nodes);
-          if (data.nodes.length === 0) return;
+          const graphSnapshot = JSON.stringify(data);
+          if (graphSnapshot === graphSnapshotRef.current) return;
+          graphSnapshotRef.current = graphSnapshot;
+          setGraphRevision((revision) => revision + 1);
+
+          if (data.nodes.length === 0) {
+            setGraphNodes([]);
+            setMovieEdges([]);
+            return;
+          }
 
           const descriptionByTarget = new Map<string, string>();
           const childrenMap = new Map<string, string[]>();
@@ -167,28 +193,6 @@ export default function App() {
     return () => clearInterval(intervalo);
   }, [syncWatchlistWithGraph]);
 
-  if (graphNodes.length === 0) {
-    return (
-      <div
-        style={{
-          width: "100vw",
-          height: "100vh",
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          padding: 24,
-        }}
-      >
-        <p style={{ textAlign: "center", fontSize: 18, fontWeight: "bold" }}>
-          Bienvenida a la búsqueda de recomendaciones de películas
-          <br />
-          Pídele al agente recomendaciones según alguna película que te haya
-          gustado
-        </p>
-      </div>
-    );
-  }
-
   return (
     <div
       style={{
@@ -204,43 +208,101 @@ export default function App() {
         flexDirection: "column",
       }}
     >
-      <div
+      <header
         style={{
+          position: "relative",
+          zIndex: 10,
           padding: "18px 24px 12px",
-          fontSize: "22px",
-          fontWeight: 700,
-          letterSpacing: "0.2px",
-          color: "#f8fafc",
           background: "#0f172a",
           width: "100%",
           boxSizing: "border-box",
           flexShrink: 0,
         }}
       >
-        Recomendaciones similares de películas
-      </div>
-
-      <div style={{ position: "relative", flex: 1, width: "100%" }}>
-        <ReactFlow
-          nodes={graphNodes}
-          edges={movieEdges}
-          nodeTypes={movieNodeTypes}
-          fitView
-          fitViewOptions={{ padding: 0.45, minZoom: 0.65, maxZoom: 1.2 }}
-          proOptions={{ hideAttribution: true }}
-          defaultEdgeOptions={{ type: "smoothstep" }}
-          nodesDraggable={false}
-          nodesConnectable={false}
-          elementsSelectable={false}
-          panOnDrag={true}
-          zoomOnScroll={true}
-          minZoom={0.6}
-          maxZoom={1.5}
-          style={{ background: "#0f172a", width: "100%", height: "100%" }}
+        <h1
+          style={{
+            margin: 0,
+            fontSize: 22,
+            fontWeight: 700,
+            letterSpacing: "0.2px",
+            color: "#f8fafc",
+            textAlign: "left",
+          }}
+        >
+          Recomendaciones similares de películas
+        </h1>
+        <p
+          aria-live="polite"
+          style={{
+            marginTop: 4,
+            color: "#94a3b8",
+            fontSize: 13,
+            textAlign: "left",
+          }}
+        >
+          Última búsqueda: {lastSearch || "Ninguna"}
+        </p>
+        <InputBar
+          hasMovies={graphNodes.length > 0}
+          graphRevision={graphRevision}
+          onSearch={setLastSearch}
         />
+      </header>
 
-        <WatchlistSidebar {...watchlistCtrl} />
-      </div>
+      {graphNodes.length === 0 ? (
+        <main
+          style={{
+            flex: 1,
+            display: "flex",
+            flexDirection: "column",
+            alignItems: "center",
+            justifyContent: "center",
+            gap: 12,
+            padding: 24,
+          }}
+        >
+          {watchlistCtrl.watchlistError && (
+            <p role="alert" style={{ color: "#fca5a5", textAlign: "center" }}>
+              No se pudo cargar la watchlist: {watchlistCtrl.watchlistError}
+            </p>
+          )}
+          <p
+            style={{
+              color: "#f8fafc",
+              textAlign: "center",
+              fontSize: 18,
+              fontWeight: "bold",
+            }}
+          >
+            Bienvenida a la búsqueda de recomendaciones de películas
+            <br />
+            Pídele al agente recomendaciones según alguna película que te haya
+            gustado
+          </p>
+        </main>
+      ) : (
+        <main style={{ position: "relative", flex: 1, minHeight: 0, width: "100%" }}>
+          <ReactFlow
+            nodes={graphNodes}
+            edges={movieEdges}
+            nodeTypes={movieNodeTypes}
+            fitView
+            fitViewOptions={{ padding: 0.45, minZoom: 0.65, maxZoom: 1.2 }}
+            proOptions={{ hideAttribution: true }}
+            defaultEdgeOptions={{ type: "smoothstep" }}
+            nodesDraggable={false}
+            nodesConnectable={false}
+            elementsSelectable={false}
+            panOnDrag={true}
+            zoomOnScroll={true}
+            minZoom={0.6}
+            maxZoom={1.5}
+            style={{ background: "#0f172a", width: "100%", height: "100%" }}
+          />
+
+          <WatchlistSidebar {...watchlistCtrl} />
+        </main>
+      )}
     </div>
   );
 }

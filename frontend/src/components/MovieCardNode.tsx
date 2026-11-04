@@ -18,6 +18,7 @@ export interface WatchlistItem {
 
 interface MovieCardNodeProps extends NodeProps<MovieNodeData> {
   watchlist: WatchlistItem[];
+  watchlistReady: boolean;
   onToggleWatchlist: (movie: WatchlistItem) => void;
 }
 
@@ -25,6 +26,7 @@ export const MovieCardNode = ({
   id,
   data,
   watchlist,
+  watchlistReady,
   onToggleWatchlist,
 }: MovieCardNodeProps) => {
   const isFavorite = watchlist.some((item) => item.id === String(id));
@@ -64,6 +66,7 @@ export const MovieCardNode = ({
     >
       <button
         type="button"
+        disabled={!watchlistReady}
         aria-label={
           isFavorite ? "Quitar de la watchlist" : "Agregar a la watchlist"
         }
